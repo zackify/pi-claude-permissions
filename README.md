@@ -10,14 +10,16 @@ This is heavily based on and inspired by [`rHedBull/pi-permissions`](https://git
 
 ## What is different?
 
-- **Four modes**:
+- **Built-in modes**:
   - `default`
   - `plan`
   - `acceptEdits`
   - `bypassPermissions`
+- **Custom modes** via `piClaudePermissions.customModes`.
 - **No `fullAuto` mode**.
 - **`bypassPermissions` is the startup default**.
 - **Configurable `Shift+Tab` cycle**.
+- Optional **`hideDefaultMode`** status hiding for your default mode.
 - **`/permissions` always shows all modes** for manual selection.
 - Includes a custom **plan mode**.
 
@@ -60,6 +62,7 @@ Allowed tools:
 - `fd`
 - `bat`
 - `eza`
+- `mcp` for servers listed in `piClaudePermissions.planModeAllowedMcpServers`
 
 Blocked in plan mode:
 
@@ -74,7 +77,7 @@ When entering plan mode, the extension notifies:
 In plan mode, only read files/search tools are allowed.
 ```
 
-It also injects visible planning instructions into the next agent turn so the model knows to inspect only and produce a detailed plan.
+It also injects concise visible planning instructions into the next agent turn so the model knows to inspect only and produce a clear plan.
 
 When leaving plan mode, the extension notifies:
 
@@ -82,11 +85,7 @@ When leaving plan mode, the extension notifies:
 Plan mode ended
 ```
 
-If you leave plan mode while the agent is idle and there is already at least one assistant response in the session, it sends this user message automatically:
-
-```text
-Plan mode ended. Execute the plan.
-```
+It does not automatically send an execute message when you exit plan mode with `Shift+Tab`. Instead, the next agent turn receives a visible `PLAN MODE ENDED` context message so the model knows it can execute under the active permission mode.
 
 ### `acceptEdits`
 
@@ -118,17 +117,56 @@ Set this in `~/.pi/agent/settings.json` or project-local `.pi/settings.json`:
 {
   "piClaudePermissions": {
     "defaultMode": "bypassPermissions",
+    "hideDefaultMode": true,
     "allowCatastrophic": false,
-    "shiftTabOptions": ["default", "plan", "acceptEdits", "bypassPermissions"]
+    "shiftTabOptions": ["default", "plan", "acceptEdits", "bypassPermissions"],
+    "planModeAllowedMcpServers": ["my-readonly-mcp"],
+    "customModes": [
+      {
+        "id": "localOnly",
+        "label": "Local Only",
+        "description": "Allow local writes and localhost debugging only",
+        "status": "⏵⛨",
+        "policy": {
+          "excludedTools": [],
+          "allowedWriteRoots": ["cwd", "parent"],
+          "blockedBashPatterns": [
+            { "pattern": "\\bgit\\s+push\\b", "description": "git push is blocked" },
+            { "pattern": "\\bgh\\s+pr\\s+create\\b", "description": "PR creation is blocked" },
+            { "pattern": "\\bpr\\s+create\\b", "description": "PR creation is blocked" }
+          ],
+          "network": {
+            "allowLocalhostOnly": true,
+            "allowGithubReadOnly": true,
+            "allowedPorts": [3000, 8080]
+          }
+        }
+      }
+    ]
   }
 }
 ```
 
-`defaultMode` controls the startup mode and defaults to `bypassPermissions`. Valid values are `default`, `plan`, `acceptEdits`, and `bypassPermissions`.
+`defaultMode` controls the startup mode and defaults to `bypassPermissions`. Valid values are any built-in or custom mode id. Built-ins are `default`, `plan`, `acceptEdits`, and `bypassPermissions`.
+
+`hideDefaultMode` defaults to `false`. When set to `true`, the footer/status label is hidden while the active mode is your configured `defaultMode` (for example, no persistent `Bypass Permissions` label when bypass is the default).
 
 `allowCatastrophic` defaults to `false`. When set to `true`, catastrophic command blocking and critical `rm -rf` detection are allowed. Protected path checks still run.
 
-`shiftTabOptions` defaults to all modes. Valid values are `default`, `plan`, `acceptEdits`, and `bypassPermissions`. This only changes the `Shift+Tab` cycle; `/permissions` still lists every mode.
+`shiftTabOptions` defaults to all built-in and custom modes. Valid values are any built-in or custom mode id. This only changes the `Shift+Tab` cycle; `/permissions` still lists every mode.
+
+`planModeAllowedMcpServers` defaults to `[]`. In plan mode, MCP calls are only allowed when the call targets a server id in this list.
+
+`customModes` adds or overrides mode definitions. A custom mode can define a `policy` with:
+
+- `excludedTools`: tool names to block outright.
+- `allowedWriteRoots`: write/edit roots. Supports `"cwd"`, `"parent"`, absolute paths, and `~/...` paths.
+- `blockedBashPatterns`: regex-like bash patterns with descriptions.
+- `network.allowLocalhostOnly`: when true, network-like bash commands are blocked unless they target localhost.
+- `network.allowGithubReadOnly`: when true, read-only GitHub commands/URLs are also allowed.
+- `network.allowedPorts`: optional allowed localhost ports.
+
+For custom modes with a policy, `description` is also injected into the model context while that mode is active.
 
 ## Safety checks kept from the inspiration plugin
 
